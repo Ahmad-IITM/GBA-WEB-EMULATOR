@@ -16,6 +16,7 @@ let autosaveTimer = 0;
 
 ui.init(nextSettings => {
   saveSettings(nextSettings);
+  core.setSettings(nextSettings);
   scheduleAutosave();
 });
 ui.bindSettings(input);
@@ -39,6 +40,7 @@ input.addEventListener("touchlayout", () => saveSettings(settings));
 async function connectMGBA() {
   const adapter = await createMGBAWasmAdapter(document.querySelector("#gameCanvas"), settings);
   core.setAdapter(adapter);
+  core.setSettings(settings);
   document.querySelector("#coreStatus").textContent = adapter ? "mGBA ready" : "Core missing";
   if (adapter) ui.toast("mGBA WebAssembly core connected.");
 }

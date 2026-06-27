@@ -7,11 +7,18 @@ export class EmulatorCore extends EventTarget {
     this.loadedROM = null;
     this.running = false;
     this.inputState = new Map();
+    this.settings = { audio: true, volume: 100, gameSpeed: 1 };
   }
 
   setAdapter(adapter) {
     this.adapter = adapter;
+    this.adapter?.setSettings?.(this.settings);
     this.dispatch("status", adapter ? "mGBA WebAssembly core connected." : "mGBA WebAssembly core is not connected.");
+  }
+
+  setSettings(settings) {
+    this.settings = { ...this.settings, ...settings };
+    this.adapter?.setSettings?.(this.settings);
   }
 
   async loadROM(romRecord) {

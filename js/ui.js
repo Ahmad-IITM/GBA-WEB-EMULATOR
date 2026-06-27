@@ -57,6 +57,8 @@ export class UI {
       ["#volumeRange", "volume", "value"],
       ["#integerScaleToggle", "integerScaling", "checked"],
       ["#fpsToggle", "showFps", "checked"],
+      ["#displayScaleSelect", "displayScale", "value"],
+      ["#gameSpeedSelect", "gameSpeed", "value"],
       ["#autosaveSelect", "autosaveInterval", "value"],
       ["#themeSelect", "theme", "value"],
       ["#touchToggle", "touchControls", "checked"],
@@ -126,6 +128,7 @@ export class UI {
     this.$("#autosaveSelect").value = s.autosaveInterval;
     this.$("#themeSelect").value = s.theme;
     this.$("#displayScaleSelect").value = String(s.displayScale || 1);
+    this.$("#gameSpeedSelect").value = String(s.gameSpeed || 1);
     this.$("#landscapeToggle").checked = s.autoLandscape;
     this.$("#performanceToggle").checked = s.highPerformance;
     this.$("#touchToggle").checked = s.touchControls;

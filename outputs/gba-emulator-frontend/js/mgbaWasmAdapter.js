@@ -38,6 +38,13 @@ class MGBAWasmAdapter {
     this.keyMask = 0;
     this.running = false;
     this.raf = 0;
+    this.audioContext = null;
+    this.audioGain = null;
+    this.audioNode = null;
+    this.audioQueue = [];
+    this.audioEnabled = true;
+    this.audioVolume = 1;
+    this.gameSpeed = 1;
     this.boundFrame = () => this.frame();
   }
 
@@ -57,6 +64,7 @@ class MGBAWasmAdapter {
   async start() {
     if (this.running) return;
     this.running = true;
+    this.ensureAudio();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.boundFrame);
   }
@@ -141,7 +149,11 @@ class MGBAWasmAdapter {
 
   frame() {
     if (!this.running) return;
-    this.module._mgba_web_run_frame();
+    const iterations = Math.max(1, Number(this.gameSpeed) || 1);
+    for (let index = 0; index < iterations; index += 1) {
+      this.module._mgba_web_run_frame();
+      this.pullAudio();
+    }
     this.drawFrame();
     this.raf = requestAnimationFrame(this.boundFrame);
   }
@@ -176,6 +188,69 @@ class MGBAWasmAdapter {
   updateCanvasSize() {
     this.canvas.width = this.module._mgba_web_framebuffer_width();
     this.canvas.height = this.module._mgba_web_framebuffer_height();
+  }
+
+  setSettings(settings) {
+    this.audioEnabled = settings.audio !== false;
+    this.audioVolume = Number(settings.volume || 100) / 100;
+    this.gameSpeed = Number(settings.gameSpeed || 1);
+    if (this.module?._mgba_web_set_audio_enabled) {
+      this.module._mgba_web_set_audio_enabled(this.audioEnabled ? 1 : 0);
+    }
+    if (this.audioGain) {
+      this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
+    }
+  }
+
+  ensureAudio() {
+    if (!this.audioEnabled || typeof window === "undefined") return;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return;
+    if (!this.audioContext) {
+      this.audioContext = new AudioContextCtor();
+      this.audioGain = this.audioContext.createGain();
+      this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
+      this.audioNode = this.audioContext.createScriptProcessor(4096, 2, 2);
+      this.audioNode.onaudioprocess = event => this.handleAudioProcess(event);
+      this.audioNode.connect(this.audioGain);
+      this.audioGain.connect(this.audioContext.destination);
+    }
+    if (this.audioContext.state === "suspended") {
+      this.audioContext.resume().catch(() => {});
+    }
+  }
+
+  handleAudioProcess(event) {
+    const left = event.outputBuffer.getChannelData(0);
+    const right = event.outputBuffer.getChannelData(1);
+    for (let index = 0; index < left.length; index += 1) {
+      if (this.audioQueue.length >= 2) {
+        left[index] = this.audioQueue.shift();
+        right[index] = this.audioQueue.shift();
+      } else {
+        left[index] = 0;
+        right[index] = 0;
+      }
+    }
+  }
+
+  pullAudio() {
+    if (!this.audioEnabled || !this.module?._mgba_web_read_audio) return;
+    this.ensureAudio();
+    const maxFrames = 1024;
+    const ptr = this.module._malloc(maxFrames * 2 * 2);
+    try {
+      const written = this.module._mgba_web_read_audio(ptr, maxFrames);
+      if (written > 0) {
+        const samples = this.module.HEAP16.subarray(ptr >> 1, (ptr >> 1) + written * 2);
+        for (let index = 0; index < samples.length; index += 2) {
+          this.audioQueue.push(samples[index] / 32768);
+          this.audioQueue.push(samples[index + 1] / 32768);
+        }
+      }
+    } finally {
+      this.module._free(ptr);
+    }
   }
 
   alloc(bytes) {

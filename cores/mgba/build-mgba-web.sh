@@ -43,7 +43,7 @@ emcc "${SOURCES[@]}" "$BRIDGE" "$APP_ROOT/cores/mgba/src/web-memory.c" "$APP_ROO
   -s ALLOW_MEMORY_GROWTH=1 \
   -s FILESYSTEM=1 \
   -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall","HEAPU8","HEAPU16","HEAP32"]' \
-  -s EXPORTED_FUNCTIONS='["_malloc","_free","_mgba_web_load_rom","_mgba_web_unload","_mgba_web_is_loaded","_mgba_web_reset","_mgba_web_run_frame","_mgba_web_set_keys","_mgba_web_framebuffer","_mgba_web_framebuffer_width","_mgba_web_framebuffer_height","_mgba_web_framebuffer_stride","_mgba_web_state_size","_mgba_web_save_state","_mgba_web_load_state","_mgba_web_save_size","_mgba_web_save_data","_mgba_web_load_save","_mgba_web_frame_counter"]' \
+  -s EXPORTED_FUNCTIONS='["_malloc","_free","_mgba_web_load_rom","_mgba_web_unload","_mgba_web_is_loaded","_mgba_web_reset","_mgba_web_run_frame","_mgba_web_set_keys","_mgba_web_set_audio_enabled","_mgba_web_read_audio","_mgba_web_framebuffer","_mgba_web_framebuffer_width","_mgba_web_framebuffer_height","_mgba_web_framebuffer_stride","_mgba_web_state_size","_mgba_web_save_state","_mgba_web_load_state","_mgba_web_save_size","_mgba_web_save_data","_mgba_web_load_save","_mgba_web_frame_counter"]' \
   -o "$OUT_DIR/mgba-core.js"
 
 echo "Built $OUT_DIR/mgba-core.js and $OUT_DIR/mgba-core.wasm"

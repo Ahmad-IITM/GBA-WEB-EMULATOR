@@ -9,6 +9,7 @@
 #include "gba/core.h"
 #include "gba/video.h"
 #include "util/vfs.h"
+#include "third-party/blip_buf/blip_buf.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -22,6 +23,7 @@ static struct mCore* webCore;
 static struct VFile* webRom;
 static color_t webFramebuffer[WEB_FRAMEBUFFER_STRIDE * VIDEO_VERTICAL_PIXELS];
 static uint32_t webKeys;
+static int webAudioEnabled = 1;
 
 static void webDestroyCore(void) {
 	if (webCore) {
@@ -104,6 +106,35 @@ void mgba_web_set_keys(uint32_t keys) {
 	if (webCore) {
 		webCore->setKeys(webCore, webKeys);
 	}
+}
+
+EMSCRIPTEN_KEEPALIVE
+void mgba_web_set_audio_enabled(int enabled) {
+	webAudioEnabled = enabled;
+}
+
+EMSCRIPTEN_KEEPALIVE
+size_t mgba_web_read_audio(int16_t* out, size_t maxFrames) {
+	if (!webCore || !out || !maxFrames || !webAudioEnabled) {
+		return 0;
+	}
+	struct blip_t* left = webCore->getAudioChannel(webCore, 0);
+	struct blip_t* right = webCore->getAudioChannel(webCore, 1);
+	if (!left || !right) {
+		return 0;
+	}
+	int available = blip_samples_avail(left);
+	if (available <= 0) {
+		return 0;
+	}
+	int samples = available < (int) maxFrames ? available : (int) maxFrames;
+	if (samples <= 0) {
+		return 0;
+	}
+	int16_t* stereo = out;
+	blip_read_samples(left, stereo, samples, true);
+	blip_read_samples(right, stereo + 1, samples, true);
+	return samples;
 }
 
 EMSCRIPTEN_KEEPALIVE

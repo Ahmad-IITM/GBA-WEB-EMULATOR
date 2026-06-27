@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   autoLandscape: true,
   highPerformance: true,
   displayScale: 1,
+  gameSpeed: 1,
   touchControls: true,
   touchOpacity: 82,
   touchSize: 100,

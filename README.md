@@ -1,38 +1,40 @@
-# GBA Web Emulator
+# GBA Emulator Frontend
 
-A polished browser-based Game Boy Advance emulator experience built with the mGBA WebAssembly core. This project brings a lightweight, touch-friendly emulator frontend to the web with ROM loading, save import/export, save states, fullscreen mode, and responsive controls.
+Static, framework-free frontend shell for a future mGBA WebAssembly core.
 
-## Live demo
+## Run
 
-Open the deployed app here:
-https://ahmad-iitm.github.io/gba-web-emulator/
+Open `index.html` from a static host such as GitHub Pages. For local module loading, serve the folder with any static file server.
 
-## Highlights
+## Core Boundary
 
-- Play GBA ROMs directly in the browser
-- Import and export save files
-- Save and load emulator states
-- Responsive fullscreen-friendly UI
-- Touch controls and keyboard/gamepad support
-- Smooth, lightweight WebAssembly-powered emulation
+The app does not emulate games and does not simulate game logic. `js/emulatorCore.js` is a facade for a black box core. A future mGBA adapter can be attached as:
 
-## Tech stack
-
-- HTML, CSS, and JavaScript
-- mGBA compiled to WebAssembly
-- IndexedDB for local saves and states
-- GitHub Pages for hosting
-
-## Run locally
-
-Serve the repository root with any static file server, for example:
-
-```bash
-python3 -m http.server 8000
+```js
+window.gbaEmulatorCore = {
+  async loadROM(buffer, romRecord) {},
+  async start() {},
+  async pause() {},
+  async reset() {},
+  async save() {},
+  async loadSave(buffer) {},
+  async saveState() {},
+  async loadState(state) {},
+  setInput(action, pressed) {},
+  async stop() {}
+};
 ```
 
-Then open http://127.0.0.1:8000/ in your browser.
+When no adapter is present, ROMs can still be imported, stored, resumed, and listed, but runtime operations that require emulation report that the mGBA WebAssembly core is not connected yet.
 
-## LinkedIn-ready summary
+## Structure
 
-Built a browser-based GBA emulator that runs a real mGBA WebAssembly core directly in the browser. The project combines emulator performance, a polished UI, save-state support, and a touch-friendly experience for modern devices.
+- `index.html`: App shell and dialogs
+- `css/style.css`: Responsive layout, handheld controls, and themes
+- `js/main.js`: Application orchestration
+- `js/emulatorCore.js`: Black box emulator adapter facade
+- `js/storage.js`: IndexedDB and download helpers
+- `js/input.js`: Keyboard, touch, and Gamepad API input
+- `js/settings.js`: Defaults, themes, and localStorage settings
+- `js/ui.js`: Rendering and UI state helpers
+- `themes/`: Theme extension notes
