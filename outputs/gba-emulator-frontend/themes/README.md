@@ -1,0 +1,1 @@
+Theme tokens are implemented in `css/style.css` with `[data-theme]` selectors so GitHub Pages can serve the app without a build step. Add future standalone theme files here if you want themes to be loaded on demand.

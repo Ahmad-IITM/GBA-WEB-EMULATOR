@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111318">
+    <title>GBA Emulator Frontend</title>
+    <link rel="stylesheet" href="css/style.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell" data-theme="dark">
+      <header class="top-toolbar" aria-label="Emulator toolbar">
+        <div class="brand" aria-label="Application name">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>GBA Shell</span>
+        </div>
+        <div class="toolbar-actions" role="group" aria-label="Game actions">
+          <button class="tool-btn primary" id="loadGameBtn" type="button">
+            <span aria-hidden="true">+</span>
+            <span>Load Game</span>
+          </button>
+          <button class="tool-btn" id="importSaveBtn" type="button">Import Save</button>
+          <button class="tool-btn" id="importStateBtn" type="button">Import State</button>
+          <button class="tool-btn" id="exportSaveBtn" type="button">Export Save</button>
+          <button class="tool-btn" id="saveStateBtn" type="button">Save State</button>
+          <button class="tool-btn" id="loadStateBtn" type="button">Load State</button>
+          <button class="tool-btn" id="pauseBtn" type="button">Pause</button>
+          <button class="tool-btn" id="resetBtn" type="button">Reset</button>
+          <button class="tool-btn" id="settingsBtn" type="button">Settings</button>
+          <button class="tool-btn" id="themesBtn" type="button">Themes</button>
+          <button class="icon-btn" id="rotateBtn" type="button" aria-label="Rotate for landscape" title="Rotate">↻</button>
+          <button class="icon-btn" id="fullscreenBtn" type="button" aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
+        </div>
+      </header>
+
+      <main class="main-layout">
+        <section class="play-area" id="dropZone" aria-label="Game display and file drop zone">
+          <div class="screen-frame">
+            <canvas id="gameCanvas" width="240" height="160" aria-label="Game screen"></canvas>
+            <div class="screen-overlay" id="screenOverlay">
+              <p class="overline">Ready</p>
+              <h1>Load a Game Boy Advance ROM</h1>
+              <p>Drop a .gba file here or use Load Game.</p>
+            </div>
+            <div class="fps-badge" id="fpsBadge" hidden>60 FPS</div>
+            <progress class="load-progress" id="loadProgress" value="0" max="100" hidden></progress>
+          </div>
+
+          <div class="touch-layer" id="touchLayer" aria-label="Touch game controls">
+            <div class="touch-control shoulder left" data-key="L" role="button" tabindex="0" aria-label="L button">L</div>
+            <div class="touch-control shoulder right" data-key="R" role="button" tabindex="0" aria-label="R button">R</div>
+            <div class="touch-control dpad" data-pad role="group" aria-label="D-pad">
+              <button type="button" data-key="Up" aria-label="Up">▲</button>
+              <button type="button" data-key="Left" aria-label="Left">◀</button>
+              <button type="button" data-key="Right" aria-label="Right">▶</button>
+              <button type="button" data-key="Down" aria-label="Down">▼</button>
+            </div>
+            <div class="touch-control face-buttons" role="group" aria-label="Action buttons">
+              <button type="button" class="button-b" data-key="B" aria-label="B button">B</button>
+              <button type="button" class="button-a" data-key="A" aria-label="A button">A</button>
+            </div>
+            <div class="touch-control menu-buttons" role="group" aria-label="Start and Select">
+              <button type="button" data-key="Select" aria-label="Select">Select</button>
+              <button type="button" data-key="Start" aria-label="Start">Start</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side-panel" aria-label="Game information">
+          <section class="panel-section">
+            <div class="section-title">
+              <h2>Game</h2>
+              <span id="coreStatus" class="status-chip">Core standby</span>
+            </div>
+            <dl class="game-meta">
+              <div><dt>ROM</dt><dd id="romName">None loaded</dd></div>
+              <div><dt>Controller</dt><dd id="controllerStatus">No gamepad</dd></div>
+              <div><dt>Save</dt><dd id="saveStatus">No save data</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <h2>Recent Games</h2>
+              <button type="button" class="text-btn" id="clearRecentBtn">Clear</button>
+            </div>
+            <div id="recentGames" class="recent-list" aria-live="polite"></div>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <h2>Save States</h2>
+              <button type="button" class="text-btn" id="exportBackupBtn">Backup</button>
+            </div>
+            <div id="stateSlots" class="state-grid"></div>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="status-bar">
+        <span id="statusText">Waiting for a ROM.</span>
+        <span id="autosaveText">Auto-save: 5 min</span>
+      </footer>
+
+      <section class="mobile-sheet" id="mobileSheet" aria-label="Mobile menu" aria-hidden="true">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-actions">
+          <button type="button" id="mobileSettingsBtn">Settings</button>
+          <button type="button" id="mobileStatesBtn">Save States</button>
+          <button type="button" id="mobileThemesBtn">Themes</button>
+        </div>
+      </section>
+
+      <dialog id="settingsDialog" class="modal">
+        <form method="dialog" class="modal-panel">
+          <header class="modal-header">
+            <h2 id="settingsTitle">Settings</h2>
+            <button type="submit" class="icon-btn" aria-label="Close settings">×</button>
+          </header>
+          <div class="tabs" role="tablist" aria-label="Settings categories">
+            <button type="button" class="tab active" data-tab="general" role="tab">General</button>
+            <button type="button" class="tab" data-tab="controls" role="tab">Controls</button>
+            <button type="button" class="tab" data-tab="touch" role="tab">Touch</button>
+            <button type="button" class="tab" data-tab="gamepad" role="tab">Gamepad</button>
+          </div>
+          <div class="tab-panels">
+            <section class="tab-panel active" data-panel="general">
+              <label class="field-row"><span>Audio</span><input id="audioToggle" type="checkbox"></label>
+              <label class="field-row"><span>Volume</span><input id="volumeRange" type="range" min="0" max="100"></label>
+              <label class="field-row"><span>Integer scaling</span><input id="integerScaleToggle" type="checkbox"></label>
+              <label class="field-row"><span>FPS display</span><input id="fpsToggle" type="checkbox"></label>
+              <label class="field-row"><span>Auto landscape</span><input id="landscapeToggle" type="checkbox"></label>
+              <label class="field-row"><span>High performance</span><input id="performanceToggle" type="checkbox"></label>
+              <label class="field-row"><span>Display scale</span><select id="displayScaleSelect"><option value="1">1x</option><option value="2">2x</option></select></label>
+              <label class="field-row"><span>Auto-save interval</span><select id="autosaveSelect"></select></label>
+              <label class="field-row"><span>Theme</span><select id="themeSelect"></select></label>
+            </section>
+            <section class="tab-panel" data-panel="controls">
+              <div id="keyboardMap" class="mapping-list"></div>
+            </section>
+            <section class="tab-panel" data-panel="touch">
+              <label class="field-row"><span>Touch controls</span><input id="touchToggle" type="checkbox"></label>
+              <label class="field-row"><span>Transparency</span><input id="touchOpacity" type="range" min="25" max="100"></label>
+              <label class="field-row"><span>Size</span><input id="touchSize" type="range" min="80" max="130"></label>
+              <label class="field-row"><span>Layout</span><button class="tool-btn" type="button" id="repositionTouchBtn">Move controls</button></label>
+              <button class="tool-btn" type="button" id="resetTouchBtn">Reset Layout</button>
+            </section>
+            <section class="tab-panel" data-panel="gamepad">
+              <p class="muted" id="gamepadHelp">Connect a controller and press any button.</p>
+              <div id="gamepadMap" class="mapping-list"></div>
+            </section>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="themeDialog" class="modal">
+        <form method="dialog" class="modal-panel compact">
+          <header class="modal-header">
+            <h2>Themes</h2>
+            <button type="submit" class="icon-btn" aria-label="Close themes">×</button>
+          </header>
+          <div id="themeCards" class="theme-cards"></div>
+        </form>
+      </dialog>
+
+      <dialog id="resumeDialog" class="modal">
+        <form method="dialog" class="modal-panel compact">
+          <header class="modal-header"><h2>Continue playing?</h2></header>
+          <p id="resumeText" class="muted">A previous game is available.</p>
+          <div class="dialog-actions">
+            <button type="button" class="tool-btn primary" id="continueBtn">Continue</button>
+            <button type="button" class="tool-btn" id="newGameBtn">New Game</button>
+          </div>
+        </form>
+      </dialog>
+
+      <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    </div>
+
+    <input id="romInput" type="file" accept=".gba,.zip,application/zip" hidden>
+    <input id="saveInput" type="file" accept=".sav,application/octet-stream" hidden>
+    <input id="stateInput" type="file" accept=".state,.json,application/json" hidden>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
