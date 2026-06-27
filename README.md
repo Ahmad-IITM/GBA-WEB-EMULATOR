@@ -2,10 +2,10 @@
 
 A polished browser-based Game Boy Advance emulator experience built with the mGBA WebAssembly core. This project brings a lightweight, touch-friendly emulator frontend to the web with ROM loading, save import/export, save states, fullscreen mode, and responsive controls.
 
-## Live demo
+## Live!
 
 Open the deployed app here:
-https://ahmad-iitm.github.io/gba-web-emulator/
+https://ahmad-iitm.github.io/GBA-WEB-EMULATOR/
 
 ## Highlights
 
