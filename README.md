@@ -33,6 +33,3 @@ python3 -m http.server 8000
 
 Then open http://127.0.0.1:8000/ in your browser.
 
-## LinkedIn-ready summary
-
-Built a browser-based GBA emulator that runs a real mGBA WebAssembly core directly in the browser. The project combines emulator performance, a polished UI, save-state support, and a touch-friendly experience for modern devices.
