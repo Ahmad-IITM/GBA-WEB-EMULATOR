@@ -38,6 +38,8 @@ class MGBAWasmAdapter {
     this.keyMask = 0;
     this.running = false;
     this.raf = 0;
+    this.audioLoopActive = false;
+    this.audioLoopRaf = 0;
     this.audioContext = null;
     this.audioGain = null;
     this.audioNode = null;
@@ -50,6 +52,7 @@ class MGBAWasmAdapter {
     this.audioUnavailable = false;
     this.gameSpeed = 1;
     this.boundFrame = () => this.frame();
+    this.boundAudioFrame = () => this.audioFrame();
   }
 
   async loadROM(buffer) {
@@ -74,6 +77,7 @@ class MGBAWasmAdapter {
   async start() {
     if (this.running) return;
     this.running = true;
+    this.startAudioLoop();
     void this.ensureAudio();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.boundFrame);
@@ -81,8 +85,22 @@ class MGBAWasmAdapter {
 
   async pause() {
     this.running = false;
+    this.stopAudioLoop();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+  }
+
+  startAudioLoop() {
+    if (this.audioLoopActive) return;
+    this.audioLoopActive = true;
+    if (this.audioLoopRaf) cancelAnimationFrame(this.audioLoopRaf);
+    this.audioLoopRaf = requestAnimationFrame(this.boundAudioFrame);
+  }
+
+  stopAudioLoop() {
+    this.audioLoopActive = false;
+    if (this.audioLoopRaf) cancelAnimationFrame(this.audioLoopRaf);
+    this.audioLoopRaf = 0;
   }
 
   async reset() {
@@ -163,7 +181,6 @@ class MGBAWasmAdapter {
       const iterations = Math.max(1, Number(this.gameSpeed) || 1);
       for (let index = 0; index < iterations; index += 1) {
         this.module._mgba_web_run_frame();
-        this.pullAudio();
       }
       this.drawFrame();
     } catch (error) {
@@ -171,9 +188,25 @@ class MGBAWasmAdapter {
       this.running = false;
       this.raf = 0;
       this.audioUnavailable = true;
+      this.stopAudioLoop();
       return;
     }
     this.raf = requestAnimationFrame(this.boundFrame);
+  }
+
+  audioFrame() {
+    if (!this.audioLoopActive || !this.running) return;
+    try {
+      if (this.audioEnabled) {
+        this.pullAudio();
+      }
+    } catch (error) {
+      console.info("Audio pipeline failed; continuing without audio.", error);
+      this.audioUnavailable = true;
+      this.stopAudioLoop();
+      return;
+    }
+    this.audioLoopRaf = requestAnimationFrame(this.boundAudioFrame);
   }
 
   drawFrame() {
@@ -220,6 +253,11 @@ class MGBAWasmAdapter {
     if (this.audioGain) {
       this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
     }
+    if (this.audioEnabled && this.running) {
+      this.startAudioLoop();
+    } else {
+      this.stopAudioLoop();
+    }
   }
 
   async resumeAudio() {
@@ -228,7 +266,11 @@ class MGBAWasmAdapter {
     if (this.module?._mgba_web_set_audio_enabled) {
       this.module._mgba_web_set_audio_enabled(this.audioEnabled ? 1 : 0);
     }
-    if (!this.audioEnabled) return false;
+    if (!this.audioEnabled) {
+      this.stopAudioLoop();
+      return false;
+    }
+    this.startAudioLoop();
     return this.ensureAudio();
   }
 
