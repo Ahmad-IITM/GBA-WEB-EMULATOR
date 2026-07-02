@@ -43,7 +43,9 @@ async function connectMGBA() {
   core.setSettings(settings);
   document.querySelector("#coreStatus").textContent = adapter ? "mGBA ready" : "Core missing";
   if (adapter) {
-    document.addEventListener("pointerdown", () => void adapter.resumeAudio?.(), { once: true, capture: true });
+    const resumeAudio = () => void adapter.resumeAudio?.();
+    document.addEventListener("pointerdown", resumeAudio, { once: true, capture: true });
+    document.addEventListener("keydown", resumeAudio, { once: true, capture: true });
     ui.toast("mGBA WebAssembly core connected.");
   }
 }
@@ -114,11 +116,20 @@ async function openROM(rom) {
   currentROM = await storage.markPlayed(rom);
   ui.setGame(currentROM);
   maybeEnableLandscape();
-  const loadedIntoCore = await core.loadROM(currentROM);
-  if (loadedIntoCore) void core.start();
+  try {
+    const loadedIntoCore = await core.loadROM(currentROM);
+    if (loadedIntoCore) {
+      await core.start();
+      ui.setStatus(`${currentROM.name} running.`);
+    } else {
+      ui.setStatus(`${currentROM.name} stored. Build the mGBA WASM core to run it.`);
+    }
+  } catch (error) {
+    ui.setStatus(error.message || "The ROM could not be started.");
+    ui.toast(error.message || "The ROM could not be started.", "error");
+  }
   updatePlaybackButtons();
   ui.setGame(currentROM);
-  ui.setStatus(loadedIntoCore ? `${currentROM.name} running.` : `${currentROM.name} stored. Build the mGBA WASM core to run it.`);
   setLastSession({ romId: currentROM.id, gameName: currentROM.name, updatedAt: Date.now() });
   await restoreRecent();
   await refreshStates();

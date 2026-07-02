@@ -9,7 +9,7 @@ export const THEMES = [
 export const ACTIONS = ["Up", "Down", "Left", "Right", "A", "B", "L", "R", "Start", "Select"];
 
 export const DEFAULT_SETTINGS = {
-  audio: true,
+  audio: false,
   volume: 80,
   integerScaling: true,
   showFps: false,
