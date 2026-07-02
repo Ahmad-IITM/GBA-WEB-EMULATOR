@@ -15,8 +15,9 @@ let currentROM = null;
 let autosaveTimer = 0;
 
 ui.init(nextSettings => {
-  saveSettings(nextSettings);
-  core.setSettings(nextSettings);
+  Object.assign(settings, nextSettings);
+  saveSettings(settings);
+  core.setSettings(settings);
   scheduleAutosave();
 });
 ui.bindSettings(input);
@@ -35,14 +36,16 @@ core.addEventListener("status", event => ui.setStatus(event.detail));
 input.addEventListener("gamepad", event => {
   document.querySelector("#controllerStatus").textContent = event.detail;
 });
-input.addEventListener("touchlayout", () => saveSettings(settings));
 
 async function connectMGBA() {
   const adapter = await createMGBAWasmAdapter(document.querySelector("#gameCanvas"), settings);
   core.setAdapter(adapter);
   core.setSettings(settings);
   document.querySelector("#coreStatus").textContent = adapter ? "mGBA ready" : "Core missing";
-  if (adapter) ui.toast("mGBA WebAssembly core connected.");
+  if (adapter) {
+    document.addEventListener("pointerdown", () => void adapter.resumeAudio?.(), { once: true, capture: true });
+    ui.toast("mGBA WebAssembly core connected.");
+  }
 }
 
 function bindToolbar() {
@@ -123,6 +126,18 @@ async function openROM(rom) {
   document.querySelector("#saveStatus").textContent = save ? `Saved ${new Date(save.updatedAt).toLocaleString()}` : "No save data";
 }
 
+async function runWithLoading(message, task) {
+  ui.setStatus(message);
+  ui.setProgress(12);
+  try {
+    await task();
+    ui.setProgress(100);
+    await new Promise(resolve => setTimeout(resolve, 80));
+  } finally {
+    ui.setProgress(0, false);
+  }
+}
+
 async function importSave(file) {
   try {
     if (!currentROM) throw new Error("Load a ROM before importing a save.");
@@ -130,7 +145,14 @@ async function importSave(file) {
     const isSupported = /\.(sav|srm|bin|raw)$/i.test(name) || !name.includes(".");
     if (!file || !isSupported) throw new Error("Choose a supported save file.");
     const buffer = await file.arrayBuffer();
-    await core.loadSave(buffer);
+    if (!buffer.byteLength) throw new Error("The selected save file is empty.");
+    if (buffer.byteLength > 1024 * 1024) throw new Error("This save file is too large.");
+    await runWithLoading("Loading save…", async () => {
+      ui.setProgress(24);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await core.loadSave(buffer);
+      ui.setProgress(90);
+    });
     await storage.saveInGame(currentROM.id, file.name, buffer);
     document.querySelector("#saveStatus").textContent = `Saved ${new Date().toLocaleString()}`;
     ui.toast("Save imported.");
@@ -144,7 +166,13 @@ async function importState(file) {
     if (!currentROM) throw new Error("Load a ROM before loading a save state.");
     if (!file) return;
     const buffer = await file.arrayBuffer();
-    await core.loadState(buffer);
+    if (!buffer.byteLength) throw new Error("The selected save state is empty.");
+    await runWithLoading("Loading save state…", async () => {
+      ui.setProgress(24);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await core.loadState(buffer);
+      ui.setProgress(90);
+    });
     ui.toast("Save state loaded.");
   } catch (error) {
     ui.toast(error.message || "Could not load save state.", "error");
@@ -184,7 +212,12 @@ async function loadState(slot) {
     if (!currentROM) throw new Error("Load a ROM before loading state.");
     const state = await storage.getState(currentROM.id, slot);
     if (!state) throw new Error(`Slot ${slot} is empty.`);
-    await core.loadState(state.payload);
+    await runWithLoading(`Loading slot ${slot}…`, async () => {
+      ui.setProgress(24);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await core.loadState(state.payload);
+      ui.setProgress(90);
+    });
     ui.toast(`Loaded slot ${slot}.`);
   } catch (error) {
     ui.toast(error.message || "Could not load state.", "error");

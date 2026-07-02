@@ -44,6 +44,9 @@ class MGBAWasmAdapter {
     this.audioQueue = [];
     this.audioEnabled = true;
     this.audioVolume = 1;
+    this.audioInitPromise = null;
+    this.audioUserActivated = false;
+    this.audioUnavailable = false;
     this.gameSpeed = 1;
     this.boundFrame = () => this.frame();
   }
@@ -64,7 +67,7 @@ class MGBAWasmAdapter {
   async start() {
     if (this.running) return;
     this.running = true;
-    this.ensureAudio();
+    void this.ensureAudio();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.boundFrame);
   }
@@ -202,22 +205,46 @@ class MGBAWasmAdapter {
     }
   }
 
-  ensureAudio() {
-    if (!this.audioEnabled || typeof window === "undefined") return;
+  async resumeAudio() {
+    this.audioUserActivated = true;
+    return this.ensureAudio();
+  }
+
+  async ensureAudio() {
+    if (!this.audioEnabled || typeof window === "undefined" || this.audioUnavailable) return false;
+    if (this.audioInitPromise) return this.audioInitPromise;
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) return;
-    if (!this.audioContext) {
-      this.audioContext = new AudioContextCtor();
-      this.audioGain = this.audioContext.createGain();
-      this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
-      this.audioNode = this.audioContext.createScriptProcessor(4096, 2, 2);
-      this.audioNode.onaudioprocess = event => this.handleAudioProcess(event);
-      this.audioNode.connect(this.audioGain);
-      this.audioGain.connect(this.audioContext.destination);
+    if (!AudioContextCtor) {
+      this.audioUnavailable = true;
+      return false;
     }
-    if (this.audioContext.state === "suspended") {
-      this.audioContext.resume().catch(() => {});
-    }
+    this.audioInitPromise = (async () => {
+      try {
+        if (!this.audioContext || this.audioContext.state === "closed") {
+          this.audioContext = new AudioContextCtor();
+        }
+        if (!this.audioGain) {
+          this.audioGain = this.audioContext.createGain();
+          this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
+          this.audioNode = this.audioContext.createScriptProcessor(4096, 2, 2);
+          this.audioNode.onaudioprocess = event => this.handleAudioProcess(event);
+          this.audioNode.connect(this.audioGain);
+          this.audioGain.connect(this.audioContext.destination);
+        }
+        if (this.audioContext.state === "suspended" && this.audioUserActivated) {
+          await this.audioContext.resume();
+        }
+        this.audioUnavailable = false;
+        return true;
+      } catch (error) {
+        this.audioUnavailable = true;
+        console.info("Audio setup failed; continuing without audio.", error);
+        return false;
+      } finally {
+        this.audioInitPromise = null;
+      }
+    })();
+    return this.audioInitPromise;
   }
 
   handleAudioProcess(event) {
@@ -235,8 +262,9 @@ class MGBAWasmAdapter {
   }
 
   pullAudio() {
-    if (!this.audioEnabled || !this.module?._mgba_web_read_audio) return;
-    this.ensureAudio();
+    if (!this.audioEnabled || !this.module?._mgba_web_read_audio || this.audioUnavailable) return;
+    if (this.audioContext?.state === "suspended" && !this.audioUserActivated) return;
+    void this.ensureAudio();
     const maxFrames = 1024;
     const ptr = this.module._malloc(maxFrames * 2 * 2);
     try {

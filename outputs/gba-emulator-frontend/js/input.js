@@ -35,7 +35,7 @@ export class InputManager extends EventTarget {
       element.addEventListener("lostpointercapture", event => this.touch(event, element.dataset.key, false));
     });
     this.makeDraggable(root);
-    this.restoreTouchLayout(root);
+    this.resetTouchLayout(root);
   }
 
   handleKeyboard(event, pressed) {
@@ -118,10 +118,82 @@ export class InputManager extends EventTarget {
   persistTouchLayout(root) {
     const layout = {};
     root.querySelectorAll(".touch-control").forEach((control, index) => {
-      layout[index] = { left: control.style.left, top: control.style.top };
+      layout[index] = {
+        left: control.style.left || "",
+        top: control.style.top || "",
+        right: control.style.right || "",
+        bottom: control.style.bottom || "",
+        transform: control.style.transform || ""
+      };
     });
     this.settings.touchLayout = layout;
     this.emit("touchlayout", layout);
+  }
+
+  resetTouchLayout(root) {
+    const parentRect = root.getBoundingClientRect();
+    const width = parentRect.width || 360;
+    const height = parentRect.height || 220;
+    const paddingX = Math.max(12, width * 0.04);
+    const paddingY = Math.max(12, height * 0.04);
+    const dpadSize = Math.min(148, Math.max(112, width * 0.34));
+    const faceWidth = Math.min(160, Math.max(120, width * 0.4));
+    const faceHeight = Math.min(116, Math.max(88, height * 0.26));
+    const shoulderHeight = Math.max(36, Math.min(48, height * 0.08));
+
+    root.querySelectorAll(".touch-control").forEach(control => {
+      control.style.left = "";
+      control.style.top = "";
+      control.style.right = "";
+      control.style.bottom = "";
+      control.style.transform = "";
+    });
+
+    const dpad = root.querySelector(".touch-control.dpad");
+    if (dpad) {
+      dpad.style.left = `${paddingX}px`;
+      dpad.style.bottom = `${Math.max(16, height * 0.08)}px`;
+      dpad.style.width = `${dpadSize}px`;
+      dpad.style.height = `${dpadSize}px`;
+    }
+
+    const face = root.querySelector(".touch-control.face-buttons");
+    if (face) {
+      face.style.right = `${paddingX}px`;
+      face.style.bottom = `${Math.max(16, height * 0.09)}px`;
+      face.style.width = `${faceWidth}px`;
+      face.style.height = `${faceHeight}px`;
+    }
+
+    const menu = root.querySelector(".touch-control.menu-buttons");
+    if (menu) {
+      menu.style.left = `${width / 2}px`;
+      menu.style.bottom = `${Math.max(12, height * 0.04)}px`;
+      menu.style.transform = "translateX(-50%)";
+    }
+
+    const shoulderLeft = root.querySelector(".touch-control.shoulder.left");
+    if (shoulderLeft) {
+      shoulderLeft.style.top = `${Math.max(16, height * 0.03)}px`;
+      shoulderLeft.style.left = `${paddingX}px`;
+      shoulderLeft.style.right = "auto";
+      shoulderLeft.style.bottom = "auto";
+      shoulderLeft.style.height = `${shoulderHeight}px`;
+      shoulderLeft.style.minWidth = `${Math.max(72, width * 0.2)}px`;
+    }
+
+    const shoulderRight = root.querySelector(".touch-control.shoulder.right");
+    if (shoulderRight) {
+      shoulderRight.style.top = `${Math.max(16, height * 0.03)}px`;
+      shoulderRight.style.right = `${paddingX}px`;
+      shoulderRight.style.left = "auto";
+      shoulderRight.style.bottom = "auto";
+      shoulderRight.style.height = `${shoulderHeight}px`;
+      shoulderRight.style.minWidth = `${Math.max(72, width * 0.2)}px`;
+    }
+
+    this.settings.touchLayout = {};
+    this.emit("touchlayout", {});
   }
 
   restoreTouchLayout(root) {
@@ -129,10 +201,11 @@ export class InputManager extends EventTarget {
     root.querySelectorAll(".touch-control").forEach((control, index) => {
       const pos = layout[index];
       if (!pos) return;
-      control.style.left = pos.left || "auto";
-      control.style.top = pos.top || "auto";
-      control.style.right = "auto";
-      control.style.bottom = "auto";
+      control.style.left = pos.left || "";
+      control.style.top = pos.top || "";
+      control.style.right = pos.right || "";
+      control.style.bottom = pos.bottom || "";
+      control.style.transform = pos.transform || "";
     });
   }
 
