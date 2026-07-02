@@ -40,6 +40,8 @@ class MGBAWasmAdapter {
     this.raf = 0;
     this.audioLoopActive = false;
     this.audioLoopRaf = 0;
+    this.saveStateLoopActive = false;
+    this.saveStateRaf = 0;
     this.audioContext = null;
     this.audioGain = null;
     this.audioNode = null;
@@ -53,19 +55,24 @@ class MGBAWasmAdapter {
     this.gameSpeed = 1;
     this.boundFrame = () => this.frame();
     this.boundAudioFrame = () => this.audioFrame();
+    this.boundSaveStateFrame = () => this.saveStateFrame();
     this.romBuffer = null;
     this.romPtr = null;
+    this.romId = null;
+    this.saveStateQueue = [];
   }
 
   async loadROM(buffer) {
     const bytes = new Uint8Array(buffer);
     try {
       this.audioQueue = [];
+      this.saveStateQueue = [];
       if (this.running) await this.pause();
       this.module._mgba_web_unload?.();
       if (this.romPtr) this.module._free(this.romPtr);
       this.romPtr = this.alloc(bytes);
       this.romBuffer = new Uint8Array(bytes);
+      this.romId = this.extractRomId(bytes);
       const ok = this.module._mgba_web_load_rom(this.romPtr, bytes.byteLength);
       if (!ok) throw new Error("mGBA rejected this ROM.");
       this.updateCanvasSize();
@@ -76,10 +83,20 @@ class MGBAWasmAdapter {
     }
   }
 
+  extractRomId(romBytes) {
+    const view = new Uint8Array(romBytes);
+    let id = 0;
+    for (let i = 0; i < Math.min(16, view.length); i++) {
+      id = (id << 8) | view[i];
+    }
+    return id;
+  }
+
   async start() {
     if (this.running) return;
     this.running = true;
     this.startAudioLoop();
+    this.startSaveStateLoop();
     void this.ensureAudio();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this.boundFrame);
@@ -88,6 +105,7 @@ class MGBAWasmAdapter {
   async pause() {
     this.running = false;
     this.stopAudioLoop();
+    this.stopSaveStateLoop();
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
   }
@@ -103,6 +121,19 @@ class MGBAWasmAdapter {
     this.audioLoopActive = false;
     if (this.audioLoopRaf) cancelAnimationFrame(this.audioLoopRaf);
     this.audioLoopRaf = 0;
+  }
+
+  startSaveStateLoop() {
+    if (this.saveStateLoopActive) return;
+    this.saveStateLoopActive = true;
+    if (this.saveStateRaf) cancelAnimationFrame(this.saveStateRaf);
+    this.saveStateRaf = requestAnimationFrame(this.boundSaveStateFrame);
+  }
+
+  stopSaveStateLoop() {
+    this.saveStateLoopActive = false;
+    if (this.saveStateRaf) cancelAnimationFrame(this.saveStateRaf);
+    this.saveStateRaf = 0;
   }
 
   async reset() {
@@ -142,28 +173,25 @@ class MGBAWasmAdapter {
   }
 
   async saveState() {
-    const size = this.module._mgba_web_state_size();
-    if (!size) throw new Error("mGBA did not expose a state size.");
-    const ptr = this.module._malloc(size);
-    try {
-      const ok = this.module._mgba_web_save_state(ptr, size);
-      if (!ok) throw new Error("mGBA could not save state.");
-      return this.copyOut(ptr, size);
-    } finally {
-      this.module._free(ptr);
-    }
+    return new Promise((resolve, reject) => {
+      this.saveStateQueue.push({
+        type: 'save',
+        resolve,
+        reject
+      });
+    });
   }
 
   async loadState(buffer) {
     const bytes = await this.toBytes(buffer);
-    const ptr = this.alloc(bytes);
-    try {
-      const ok = this.module._mgba_web_load_state(ptr, bytes.byteLength);
-      if (!ok) throw new Error("mGBA could not load state.");
-      this.drawFrame();
-    } finally {
-      this.module._free(ptr);
-    }
+    return new Promise((resolve, reject) => {
+      this.saveStateQueue.push({
+        type: 'load',
+        bytes,
+        resolve,
+        reject
+      });
+    });
   }
 
   setInput(action, pressed) {
@@ -209,6 +237,56 @@ class MGBAWasmAdapter {
       return;
     }
     this.audioLoopRaf = requestAnimationFrame(this.boundAudioFrame);
+  }
+
+  saveStateFrame() {
+    if (!this.saveStateLoopActive) return;
+    if (this.saveStateQueue.length === 0) {
+      this.saveStateRaf = requestAnimationFrame(this.boundSaveStateFrame);
+      return;
+    }
+    const task = this.saveStateQueue.shift();
+    try {
+      if (task.type === 'save') {
+        const size = this.module._mgba_web_state_size();
+        if (!size) throw new Error("mGBA did not expose a state size.");
+        const ptr = this.module._malloc(size);
+        try {
+          const ok = this.module._mgba_web_save_state(ptr, size);
+          if (!ok) throw new Error("mGBA could not save state.");
+          const stateData = this.copyOut(ptr, size);
+          task.resolve(stateData);
+        } finally {
+          this.module._free(ptr);
+        }
+      } else if (task.type === 'load') {
+        const stateId = this.extractStateId(task.bytes);
+        if (stateId !== this.romId) {
+          throw new Error("State is for a different ROM.");
+        }
+        const ptr = this.alloc(task.bytes);
+        try {
+          const ok = this.module._mgba_web_load_state(ptr, task.bytes.byteLength);
+          if (!ok) throw new Error("mGBA could not load state.");
+          this.drawFrame();
+          task.resolve();
+        } finally {
+          this.module._free(ptr);
+        }
+      }
+    } catch (error) {
+      task.reject(error);
+    }
+    this.saveStateRaf = requestAnimationFrame(this.boundSaveStateFrame);
+  }
+
+  extractStateId(stateBytes) {
+    const view = new Uint8Array(stateBytes);
+    let id = 0;
+    for (let i = Math.max(0, view.length - 16); i < Math.min(16, view.length); i++) {
+      id = (id << 8) | view[i];
+    }
+    return id;
   }
 
   drawFrame() {
@@ -292,7 +370,7 @@ class MGBAWasmAdapter {
         if (!this.audioGain) {
           this.audioGain = this.audioContext.createGain();
           this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
-          this.audioNode = this.audioContext.createScriptProcessor?.(4096, 2, 2);
+          this.audioNode = this.audioContext.createScriptProcessor?.(16384, 2, 2);
           if (!this.audioNode) {
             this.audioUnavailable = true;
             return false;

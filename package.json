@@ -1,0 +1,21 @@
+{
+  "name": "files-mentioned-by-the-user-you",
+  "version": "1.0.0",
+  "description": "Static, framework-free frontend shell for a future mGBA WebAssembly core.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ahmad-IITM/GBA-WEB-EMULATOR.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Ahmad-IITM/GBA-WEB-EMULATOR/issues"
+  },
+  "homepage": "https://github.com/Ahmad-IITM/GBA-WEB-EMULATOR#readme"
+}
