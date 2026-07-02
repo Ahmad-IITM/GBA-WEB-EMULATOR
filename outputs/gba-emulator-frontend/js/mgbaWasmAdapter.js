@@ -53,24 +53,26 @@ class MGBAWasmAdapter {
     this.gameSpeed = 1;
     this.boundFrame = () => this.frame();
     this.boundAudioFrame = () => this.audioFrame();
+    this.romBuffer = null;
+    this.romPtr = null;
   }
 
   async loadROM(buffer) {
     const bytes = new Uint8Array(buffer);
-    const ptr = this.alloc(bytes);
     try {
       this.audioQueue = [];
       if (this.running) await this.pause();
       this.module._mgba_web_unload?.();
-      const ok = this.module._mgba_web_load_rom(ptr, bytes.byteLength);
+      if (this.romPtr) this.module._free(this.romPtr);
+      this.romPtr = this.alloc(bytes);
+      this.romBuffer = new Uint8Array(bytes);
+      const ok = this.module._mgba_web_load_rom(this.romPtr, bytes.byteLength);
       if (!ok) throw new Error("mGBA rejected this ROM.");
       this.updateCanvasSize();
       this.drawFrame();
     } catch (error) {
       this.audioUnavailable = true;
       throw error;
-    } finally {
-      this.module._free(ptr);
     }
   }
 
