@@ -44,6 +44,7 @@ class MGBAWasmAdapter {
     this.saveStateRaf = 0;
     this.audioContext = null;
     this.audioGain = null;
+    this.audioFilter = null;
     this.audioNode = null;
     this.audioQueue = [];
     this.audioEnabled = false;
@@ -85,11 +86,7 @@ class MGBAWasmAdapter {
 
   extractRomId(romBytes) {
     const view = new Uint8Array(romBytes);
-    let id = 0;
-    for (let i = 0; i < Math.min(16, view.length); i++) {
-      id = (id << 8) | view[i];
-    }
-    return id;
+    return this.extractRomFingerprint(view);
   }
 
   async start() {
@@ -260,8 +257,8 @@ class MGBAWasmAdapter {
           this.module._free(ptr);
         }
       } else if (task.type === 'load') {
-        const stateId = this.extractStateId(task.bytes);
-        if (stateId !== this.romId) {
+        const stateFingerprint = this.extractStateFingerprint(task.bytes);
+        if (!this.isMatchingFingerprint(stateFingerprint, this.romId)) {
           throw new Error("State is for a different ROM.");
         }
         const ptr = this.alloc(task.bytes);
@@ -282,11 +279,53 @@ class MGBAWasmAdapter {
 
   extractStateId(stateBytes) {
     const view = new Uint8Array(stateBytes);
-    let id = 0;
-    for (let i = Math.max(0, view.length - 16); i < Math.min(16, view.length); i++) {
-      id = (id << 8) | view[i];
+    return this.extractStateFingerprint(view);
+  }
+
+  extractRomFingerprint(view) {
+    return {
+      title: this.extractNullTerminatedText(view, 0xA0, 12),
+      code: this.extractNullTerminatedText(view, 0xAC, 4),
+      romCrc32: this.crc32(view)
+    };
+  }
+
+  extractStateFingerprint(view) {
+    return {
+      title: this.extractNullTerminatedText(view, 0x10, 12),
+      code: this.extractNullTerminatedText(view, 0x1C, 4),
+      romCrc32: this.readU32(view, 0x08)
+    };
+  }
+
+  isMatchingFingerprint(stateFingerprint, romFingerprint) {
+    if (!stateFingerprint || !romFingerprint) return false;
+    return stateFingerprint.title === romFingerprint.title
+      && stateFingerprint.code === romFingerprint.code
+      && stateFingerprint.romCrc32 === romFingerprint.romCrc32;
+  }
+
+  extractNullTerminatedText(view, offset, length) {
+    let text = "";
+    for (let index = 0; index < length && offset + index < view.length; index += 1) {
+      const byte = view[offset + index];
+      if (byte === 0) break;
+      text += String.fromCharCode(byte);
     }
-    return id;
+    return text || "unknown";
+  }
+
+  readU32(view, offset) {
+    if (offset + 4 > view.length) return 0;
+    return new DataView(view.buffer, view.byteOffset, view.byteLength).getUint32(offset, true);
+  }
+
+  crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let index = 0; index < bytes.length; index += 1) {
+      crc = CRC32_TABLE[(crc ^ bytes[index]) & 0xFF] ^ (crc >>> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
   }
 
   drawFrame() {
@@ -370,13 +409,24 @@ class MGBAWasmAdapter {
         if (!this.audioGain) {
           this.audioGain = this.audioContext.createGain();
           this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
+          if (!this.audioFilter && this.audioContext.createBiquadFilter) {
+            this.audioFilter = this.audioContext.createBiquadFilter();
+            this.audioFilter.type = "lowpass";
+            this.audioFilter.frequency.value = 11000;
+            this.audioFilter.Q.value = 0.7;
+          }
           this.audioNode = this.audioContext.createScriptProcessor?.(16384, 2, 2);
           if (!this.audioNode) {
             this.audioUnavailable = true;
             return false;
           }
           this.audioNode.onaudioprocess = event => this.handleAudioProcess(event);
-          this.audioNode.connect(this.audioGain);
+          if (this.audioFilter) {
+            this.audioNode.connect(this.audioFilter);
+            this.audioFilter.connect(this.audioGain);
+          } else {
+            this.audioNode.connect(this.audioGain);
+          }
           this.audioGain.connect(this.audioContext.destination);
         }
         if (this.audioContext.state === "suspended" && this.audioUserActivated) {
@@ -449,3 +499,15 @@ class MGBAWasmAdapter {
     return view.buffer;
   }
 }
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let crc = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
+    }
+    table[index] = crc >>> 0;
+  }
+  return table;
+})();

@@ -208,6 +208,12 @@ export class UI {
     this.elements.states.querySelectorAll("[data-load-slot]").forEach(button => button.addEventListener("click", () => onLoad?.(Number(button.dataset.loadSlot))));
   }
 
+  setClearStatesAction(onClear) {
+    const button = this.$("#clearStatesBtn");
+    if (!button) return;
+    button.addEventListener("click", () => onClear?.());
+  }
+
   setGame(rom) {
     this.elements.romName.textContent = rom?.name || "None loaded";
     this.elements.overlay.hidden = Boolean(rom);

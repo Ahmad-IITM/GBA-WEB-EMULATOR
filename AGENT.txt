@@ -204,9 +204,78 @@ TECHNICAL NOTES
 - No synchronous blocking - all async with Promises
 
 ==============================================================================
+CRITICAL BUGS TO FIX (NEXT SESSION)
+==============================================================================
+
+🔴 BUG 1: ROM ID Extraction Fails After Game Reload
+   Issue: After reloading game, state validation thinks it's for different game
+   Root Cause: Current method extracts first 16 bytes as ID - not stable/unique
+   Solution: Use GBA ROM Header Title field (standard emulator method)
+   
+   GBA ROM Header Structure:
+   - Offset 0xA0-0xAB (12 bytes): Game Title (null-terminated)
+   - This is the canonical game identifier
+   
+   Implementation needed:
+   ```javascript
+   extractRomId(romBytes) {
+     const view = new Uint8Array(romBytes);
+     // GBA ROM header: game title at 0xA0 for 12 bytes
+     let title = '';
+     for (let i = 0xA0; i < 0xAB && i < view.length; i++) {
+       const byte = view[i];
+       if (byte === 0) break;
+       title += String.fromCharCode(byte);
+     }
+     return title || 'unknown';
+   }
+   ```
+   
+   State file should include game name in metadata or footer.
+
+🔴 BUG 2: Import Save File Does Nothing
+   Issue: Save import button click has no effect, no error, no toast
+   Root Cause: Likely missing event handler or queue not processing
+   Investigation needed:
+   - Check if #saveInput change event is attached in main.js
+   - Verify importSave() is actually called
+   - Check saveStateQueue processing - ensure save import goes through it
+   - Add logging/toast at each step
+   
+   Files to check:
+   - js/main.js - look for #saveInput event listener
+   - js/mgbaWasmAdapter.js - verify loadSave() calls queueing mechanism
+   - Expected flow: file input → importSave() → adapter.loadSave() → toast
+
+==============================================================================
+NEXT SESSION PRIORITY
+==============================================================================
+
+PHASE 8: Fix ROM Title Extraction (Critical)
+   - Change extractRomId to read game title from GBA header 0xA0
+   - Change extractStateId to extract matching game title from state
+   - Test: Reload game -> save state -> reload again -> load state should work
+   - Files: js/mgbaWasmAdapter.js, outputs/gba-emulator-frontend/js/mgbaWasmAdapter.js
+
+PHASE 9: Fix Save Import (Critical)
+   - Debug why #saveInput does nothing
+   - Add logging to trace execution path
+   - Ensure event handler is attached
+   - Verify queue is processing
+   - Files: js/main.js, js/mgbaWasmAdapter.js
+
+DO NOT DO:
+   - Further audio optimization (already good)
+   - UI changes
+   - Touch control changes
+   - Anything not directly fixing these bugs
+
+==============================================================================
 GIT HISTORY
 ==============================================================================
 
+c9895ec Add agent continuation log with phase documentation
+7be85a0 Add save/state pipeline and increase audio buffer to 16384
 8a14d7b Keep ROM buffer alive to fix state save/load validation
 68a6f31 Isolate audio pipeline from game loop
 e7d9908 Respect audio off setting

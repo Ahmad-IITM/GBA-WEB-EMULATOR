@@ -13,6 +13,7 @@ const input = new InputManager(settings, core);
 
 let currentROM = null;
 let autosaveTimer = 0;
+let exitExportStarted = false;
 
 ui.init(nextSettings => {
   Object.assign(settings, nextSettings);
@@ -31,6 +32,7 @@ drawIdleScreen();
 scheduleAutosave();
 connectMGBA();
 setFullscreenUI(Boolean(document.fullscreenElement));
+bindExitExport();
 
 core.addEventListener("status", event => ui.setStatus(event.detail));
 input.addEventListener("gamepad", event => {
@@ -58,8 +60,14 @@ function bindToolbar() {
     maybeEnableLandscape();
     romInput.click();
   });
-  document.querySelector("#importSaveBtn").addEventListener("click", () => saveInput.click());
-  document.querySelector("#importStateBtn").addEventListener("click", () => stateInput.click());
+  document.querySelector("#importSaveBtn").addEventListener("click", () => {
+    saveInput.value = "";
+    saveInput.click();
+  });
+  document.querySelector("#importStateBtn").addEventListener("click", () => {
+    stateInput.value = "";
+    stateInput.click();
+  });
   document.querySelector("#exportSaveBtn").addEventListener("click", exportSave);
   document.querySelector("#saveStateBtn").addEventListener("click", () => saveState(1));
   document.querySelector("#loadStateBtn").addEventListener("click", () => loadState(1));
@@ -71,6 +79,7 @@ function bindToolbar() {
   document.querySelector("#fullscreenBtn").addEventListener("click", toggleFullscreen);
   document.querySelector("#rotateBtn").addEventListener("click", toggleLandscape);
   document.querySelector("#clearRecentBtn").addEventListener("click", clearRecent);
+  document.querySelector("#clearStatesBtn").addEventListener("click", clearStates);
   document.querySelector("#exportBackupBtn").addEventListener("click", exportBackup);
   document.querySelector("#mobileSettingsBtn").addEventListener("click", () => ui.showSettings());
   document.querySelector("#mobileThemesBtn").addEventListener("click", () => ui.showThemes());
@@ -116,8 +125,9 @@ async function openROM(rom) {
   currentROM = await storage.markPlayed(rom);
   ui.setGame(currentROM);
   maybeEnableLandscape();
+  let loadedIntoCore = false;
   try {
-    const loadedIntoCore = await core.loadROM(currentROM);
+    loadedIntoCore = await core.loadROM(currentROM);
     if (loadedIntoCore) {
       await core.start();
       ui.setStatus(`${currentROM.name} running.`);
@@ -132,8 +142,11 @@ async function openROM(rom) {
   ui.setGame(currentROM);
   setLastSession({ romId: currentROM.id, gameName: currentROM.name, updatedAt: Date.now() });
   await restoreRecent();
+  const save = await storage.getSave(currentROM);
+  if (loadedIntoCore && save?.buffer?.byteLength) {
+    await core.loadSave(save.buffer);
+  }
   await refreshStates();
-  const save = await storage.getSave(currentROM.id);
   document.querySelector("#saveStatus").textContent = save ? `Saved ${new Date(save.updatedAt).toLocaleString()}` : "No save data";
 }
 
@@ -164,11 +177,14 @@ async function importSave(file) {
       await core.loadSave(buffer);
       ui.setProgress(90);
     });
-    await storage.saveInGame(currentROM.id, file.name, buffer);
-    document.querySelector("#saveStatus").textContent = `Saved ${new Date().toLocaleString()}`;
+    await storage.saveInGame(currentROM, file.name, buffer);
+    await openROM(currentROM);
     ui.toast("Save imported.");
   } catch (error) {
     ui.toast(error.message || "Could not import save.", "error");
+  } finally {
+    const saveInput = document.querySelector("#saveInput");
+    if (saveInput) saveInput.value = "";
   }
 }
 
@@ -178,6 +194,21 @@ async function importState(file) {
     if (!file) return;
     const buffer = await file.arrayBuffer();
     if (!buffer.byteLength) throw new Error("The selected save state is empty.");
+    const text = new TextDecoder().decode(new Uint8Array(buffer));
+    const trimmed = text.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      const backup = JSON.parse(trimmed);
+      if (backup?.states || backup?.saves || backup?.roms) {
+        const shouldReplace = backup?.states?.length ? window.confirm("Replace existing save states with this backup?") : false;
+        if (shouldReplace) {
+          await storage.clear("states");
+        }
+        await storage.importBackup(backup);
+        await refreshStates();
+        ui.toast(shouldReplace ? "Backup imported and existing states replaced." : "Backup imported.");
+        return;
+      }
+    }
     await runWithLoading("Loading save state…", async () => {
       ui.setProgress(24);
       await new Promise(resolve => setTimeout(resolve, 0));
@@ -187,16 +218,19 @@ async function importState(file) {
     ui.toast("Save state loaded.");
   } catch (error) {
     ui.toast(error.message || "Could not load save state.", "error");
+  } finally {
+    const stateInput = document.querySelector("#stateInput");
+    if (stateInput) stateInput.value = "";
   }
 }
 
 async function exportSave() {
   try {
     if (!currentROM) throw new Error("Load a ROM before exporting a save.");
-    let save = await storage.getSave(currentROM.id);
+    let save = await storage.getSave(currentROM);
     if (!save) {
       const buffer = await core.save();
-      save = await storage.saveInGame(currentROM.id, `${baseName(currentROM.name)}.sav`, buffer);
+      save = await storage.saveInGame(currentROM, `${baseName(currentROM.name)}.sav`, buffer);
     }
     downloadBlob(`${baseName(currentROM.name)}.sav`, save.buffer);
     ui.toast("Save exported.");
@@ -221,7 +255,7 @@ async function saveState(slot) {
 async function loadState(slot) {
   try {
     if (!currentROM) throw new Error("Load a ROM before loading state.");
-    const state = await storage.getState(currentROM.id, slot);
+    const state = await storage.getState(currentROM, slot);
     if (!state) throw new Error(`Slot ${slot} is empty.`);
     await runWithLoading(`Loading slot ${slot}…`, async () => {
       ui.setProgress(24);
@@ -236,7 +270,7 @@ async function loadState(slot) {
 }
 
 async function refreshStates() {
-  const states = currentROM ? await storage.getStates(currentROM.id) : [];
+  const states = currentROM ? await storage.getStates(currentROM) : [];
   ui.renderStateSlots(states, saveState, loadState);
 }
 
@@ -306,7 +340,7 @@ function scheduleAutosave() {
     if (!currentROM) return;
     try {
       const buffer = await core.save();
-      await storage.saveInGame(currentROM.id, `${baseName(currentROM.name)}.sav`, buffer);
+      await storage.saveInGame(currentROM, `${baseName(currentROM.name)}.sav`, buffer);
       ui.setStatus(`Auto-saved ${new Date().toLocaleTimeString()}.`);
     } catch {
       ui.setStatus("Auto-save waiting for mGBA core.");
@@ -320,6 +354,46 @@ async function exportBackup() {
     downloadBlob(`gba-shell-backup-${Date.now()}.json`, JSON.stringify(backup, null, 2), "application/json");
   } catch (error) {
     ui.toast(error.message || "Could not export backup.", "error");
+  }
+}
+
+function bindExitExport() {
+  const onPageHide = () => void exportOnExit();
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") void exportOnExit();
+  };
+  window.addEventListener("pagehide", onPageHide);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+}
+
+async function exportOnExit() {
+  if (exitExportStarted || !currentROM) return;
+  exitExportStarted = true;
+  try {
+    const saveBuffer = await core.save();
+    if (saveBuffer?.byteLength) {
+      await storage.saveInGame(currentROM, `${baseName(currentROM.name)}.sav`, saveBuffer);
+      downloadBlob(`${baseName(currentROM.name)}.sav`, saveBuffer);
+    }
+    const backup = await storage.exportBackup();
+    downloadBlob(`gba-shell-backup-${Date.now()}.json`, JSON.stringify(backup, null, 2), "application/json");
+  } catch {
+    // Exit-time export is best effort; browsers may cancel work during teardown.
+  } finally {
+    exitExportStarted = false;
+  }
+}
+
+async function clearStates() {
+  try {
+    if (!currentROM) throw new Error("Load a ROM before clearing states.");
+    if (!window.confirm("Delete all save states for this game?")) return;
+    const states = await storage.getStates(currentROM);
+    await Promise.all(states.map(state => storage.delete("states", state.id)));
+    await refreshStates();
+    ui.toast("Save states cleared.");
+  } catch (error) {
+    ui.toast(error.message || "Could not clear save states.", "error");
   }
 }
 
