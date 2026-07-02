@@ -55,10 +55,16 @@ class MGBAWasmAdapter {
     const bytes = new Uint8Array(buffer);
     const ptr = this.alloc(bytes);
     try {
+      this.audioQueue = [];
+      if (this.running) await this.pause();
+      this.module._mgba_web_unload?.();
       const ok = this.module._mgba_web_load_rom(ptr, bytes.byteLength);
       if (!ok) throw new Error("mGBA rejected this ROM.");
       this.updateCanvasSize();
       this.drawFrame();
+    } catch (error) {
+      this.audioUnavailable = true;
+      throw error;
     } finally {
       this.module._free(ptr);
     }
@@ -152,12 +158,20 @@ class MGBAWasmAdapter {
 
   frame() {
     if (!this.running) return;
-    const iterations = Math.max(1, Number(this.gameSpeed) || 1);
-    for (let index = 0; index < iterations; index += 1) {
-      this.module._mgba_web_run_frame();
-      this.pullAudio();
+    try {
+      const iterations = Math.max(1, Number(this.gameSpeed) || 1);
+      for (let index = 0; index < iterations; index += 1) {
+        this.module._mgba_web_run_frame();
+        this.pullAudio();
+      }
+      this.drawFrame();
+    } catch (error) {
+      console.info("Emulator frame failed; stopping the loop.", error);
+      this.running = false;
+      this.raf = 0;
+      this.audioUnavailable = true;
+      return;
     }
-    this.drawFrame();
     this.raf = requestAnimationFrame(this.boundFrame);
   }
 
@@ -194,7 +208,8 @@ class MGBAWasmAdapter {
   }
 
   setSettings(settings) {
-    this.audioEnabled = settings.audio !== false;
+    const audioAllowed = settings.audio !== false;
+    this.audioEnabled = audioAllowed && this.audioUserActivated;
     this.audioVolume = Number(settings.volume || 100) / 100;
     this.gameSpeed = Number(settings.gameSpeed || 1);
     if (this.module?._mgba_web_set_audio_enabled) {
@@ -207,6 +222,10 @@ class MGBAWasmAdapter {
 
   async resumeAudio() {
     this.audioUserActivated = true;
+    this.audioEnabled = true;
+    if (this.module?._mgba_web_set_audio_enabled) {
+      this.module._mgba_web_set_audio_enabled(1);
+    }
     return this.ensureAudio();
   }
 
@@ -226,7 +245,11 @@ class MGBAWasmAdapter {
         if (!this.audioGain) {
           this.audioGain = this.audioContext.createGain();
           this.audioGain.gain.value = this.audioEnabled ? this.audioVolume : 0;
-          this.audioNode = this.audioContext.createScriptProcessor(4096, 2, 2);
+          this.audioNode = this.audioContext.createScriptProcessor?.(4096, 2, 2);
+          if (!this.audioNode) {
+            this.audioUnavailable = true;
+            return false;
+          }
           this.audioNode.onaudioprocess = event => this.handleAudioProcess(event);
           this.audioNode.connect(this.audioGain);
           this.audioGain.connect(this.audioContext.destination);
