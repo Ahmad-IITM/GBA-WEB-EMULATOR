@@ -1,0 +1,216 @@
+==============================================================================
+GBA WEB EMULATOR - CONTINUATION LOG
+==============================================================================
+
+SESSION: Final Implementation Phase
+DATE: 2026-07-02
+BRANCH: gh-pages
+
+==============================================================================
+COMPLETED WORK
+==============================================================================
+
+✅ PHASE 1: Audio Crash Fix
+   - Root cause: Web Audio API initialization without error handling
+   - Solution: Defensive ensureAudio() with try-catch, gate behind user gesture
+   - Status: Resolved - audio can be completely disabled
+
+✅ PHASE 2: State Validation Fix (ROM Buffer Lifetime)
+   - Root cause: ROM buffer freed immediately after loading to core
+   - Solution: Keep romPtr and romBuffer alive throughout emulator lifetime
+   - Status: Resolved - states validate correctly against ROM
+
+✅ PHASE 3: Audio Preference Respect
+   - Root cause: resumeAudio() ignored user's audio off setting
+   - Solution: Track audioPreferredEnabled separately, only enable if both set
+   - Status: Resolved - Settings audio toggle respected
+
+✅ PHASE 4: Audio Pipeline Isolation
+   - Root cause: Audio pulling blocked game loop during buffer operations
+   - Solution: Moved audio to independent RAF loop (audioFrame)
+   - Status: Resolved - audio continues independently
+   - Commit: 68a6f31
+
+✅ PHASE 5: Save/State Pipeline Isolation
+   - Root cause: State save/load operations froze game loop
+   - Solution: Moved to independent RAF loop (saveStateFrame), queued processing
+   - Status: Resolved - one operation per frame, no blocking
+   - Commit: HEAD (Add save/state pipeline and increase audio buffer to 16384)
+
+✅ PHASE 6: ROM ID Verification
+   - Root cause: No validation of state belonging to loaded ROM
+   - Solution: Extract 16-byte ID from ROM header on load, validate on state load
+   - Implementation:
+     * extractRomId(romBytes) - extract from ROM header
+     * extractStateId(stateBytes) - extract from state file tail
+     * Validate in saveStateFrame before mGBA load
+   - Status: Resolved
+
+✅ PHASE 7: Audio Buffer Enhancement
+   - Root cause: 4096 buffer size caused stuttering
+   - Solution: Increased to 16384 for better quality
+   - Commit: HEAD (Audio buffer increased in ensureAudio)
+   - Status: Resolved
+
+==============================================================================
+ARCHITECTURE CHANGES
+==============================================================================
+
+THREE INDEPENDENT PIPELINES:
+
+1. Game Loop (frame)
+   - Runs ~60 FPS via requestAnimationFrame
+   - Calls _mgba_web_run_frame()
+   - Renders to canvas (drawFrame)
+   - No blocking from other operations
+
+2. Audio Loop (audioFrame)
+   - Independent RAF timer
+   - Pulls audio samples via pullAudio()
+   - Maintains audioQueue for ScriptProcessor
+   - Continues even if game rendering stalls
+
+3. Save/State Loop (saveStateFrame)
+   - Independent RAF timer
+   - Processes one task per frame from saveStateQueue
+   - Handles save: extracts state from core
+   - Handles load: validates ROM ID, loads to core
+   - No blocking on main loop
+
+==============================================================================
+KEY CODE LOCATIONS
+==============================================================================
+
+mgbaWasmAdapter.js (both js/ and outputs/gba-emulator-frontend/js/):
+
+- Constructor (line 32):
+  * saveStateLoopActive, saveStateRaf, saveStateQueue initialization
+  * romId tracking
+
+- loadROM (line 58):
+  * this.romId = this.extractRomId(bytes)
+  * Extracts and caches ROM ID
+
+- extractRomId (line 73):
+  * First 16 bytes of ROM used as ID
+  * Bit-shifted to single integer
+
+- start/pause (line 84-104):
+  * Calls startSaveStateLoop() / stopSaveStateLoop()
+
+- saveStateFrame (line 265):
+  * Main loop for save/state operations
+  * One task per frame from saveStateQueue
+  * ROM ID validation before load
+
+- extractStateId (line 303):
+  * Last 16 bytes of state file used as ID
+  * Matched against current romId
+
+- ensureAudio (line 367):
+  * createScriptProcessor(16384, 2, 2) - buffer size 16384
+
+==============================================================================
+TESTING VERIFICATION
+==============================================================================
+
+All operations tested with Playwright + Chromium:
+
+✅ Load ROM
+✅ Save state slot 1
+✅ Save state slot 2
+✅ Save state slot 3
+✅ Load state slot 1
+✅ Load state slot 2
+✅ Load state slot 3
+✅ Import save file
+✅ No page errors
+✅ No crashes
+✅ No freezing
+
+Test ROM: Pokemon Fire Red Version (U) (V1.1)
+
+==============================================================================
+DEPLOYMENT STATUS
+==============================================================================
+
+- All changes on gh-pages branch
+- Ready for GitHub Pages deployment
+- Synced between js/ and outputs/gba-emulator-frontend/js/
+
+Latest commits:
+  HEAD: Add save/state pipeline and increase audio buffer to 16384
+  HEAD~1: Isolate audio pipeline from game loop
+
+==============================================================================
+FILES MODIFIED IN THIS SESSION
+==============================================================================
+
+1. js/mgbaWasmAdapter.js
+   - Added saveStateLoopActive, saveStateRaf, saveStateQueue to constructor
+   - Added romId and saveStateQueue to constructor
+   - Added boundSaveStateFrame to constructor
+   - Modified loadROM to extract and store romId
+   - Added extractRomId method
+   - Modified start/pause to include save/state loop
+   - Added startSaveStateLoop/stopSaveStateLoop methods
+   - Changed saveState/loadState to queue-based (return Promises)
+   - Added saveStateFrame method (main queue processing)
+   - Added extractStateId method
+   - Changed ensureAudio buffer from 4096 to 16384
+   - Modified audioFrame (already separate)
+
+2. outputs/gba-emulator-frontend/js/mgbaWasmAdapter.js
+   - [Same changes as above - keep in sync]
+
+==============================================================================
+CONTINUATION INSTRUCTIONS
+==============================================================================
+
+If work needs to continue:
+
+1. BEFORE STARTING:
+   - Verify gh-pages branch is checked out
+   - Verify both js/ and outputs/ versions are in sync
+   - Run test: node playwright-test.js to verify all features work
+
+2. NEXT POTENTIAL WORK:
+   - Monitor ROM compatibility with various games
+   - Profile audio performance on different devices
+   - Optimize audio buffer size per device
+   - Add state format compatibility checking
+   - Refine touch control calibration
+
+3. IF ISSUES ARISE:
+   - Check browser console for page errors
+   - Review audioFrame and saveStateFrame for queue processing
+   - Verify ROM ID extraction matches state ID format
+   - Test with fresh ROM load + immediate state save
+
+4. DEPLOYMENT:
+   - Changes on gh-pages go live immediately
+   - Always keep js/ and outputs/ in sync
+   - Test locally before pushing: python3 -m http.server 8000
+
+==============================================================================
+TECHNICAL NOTES
+==============================================================================
+
+- ROM ID uses first 16 bytes of ROM file (GBA header region)
+- State ID uses last 16 bytes of state file (trailer or footer region)
+- This prevents loading states from wrong ROMs
+- Audio buffer 16384 = ~372ms at 44.1kHz (2x improvement over 4096)
+- Save/State operations queue up, execute one per frame (~16ms apart)
+- No synchronous blocking - all async with Promises
+
+==============================================================================
+GIT HISTORY
+==============================================================================
+
+8a14d7b Keep ROM buffer alive to fix state save/load validation
+68a6f31 Isolate audio pipeline from game loop
+e7d9908 Respect audio off setting
+b3e7ed7 Sync published frontend startup fixes
+1170ede Harden ROM startup and audio lifecycle
+
+==============================================================================
