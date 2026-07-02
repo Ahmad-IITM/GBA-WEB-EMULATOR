@@ -14,6 +14,7 @@ const input = new InputManager(settings, core);
 let currentROM = null;
 let autosaveTimer = 0;
 let exitExportStarted = false;
+const LAST_STATE_SLOT = "laststate";
 
 ui.init(nextSettings => {
   Object.assign(settings, nextSettings);
@@ -298,7 +299,10 @@ async function continueLast() {
   document.querySelector("#resumeDialog").close();
   const session = getLastSession();
   const rom = session?.romId ? await storage.get("roms", session.romId) : null;
-  if (rom) await openROM(rom);
+  if (rom) {
+    await openROM(rom);
+    await restoreLastState(rom);
+  }
 }
 
 async function togglePause() {
@@ -341,6 +345,7 @@ function scheduleAutosave() {
     try {
       const buffer = await core.save();
       await storage.saveInGame(currentROM, `${baseName(currentROM.name)}.sav`, buffer);
+      await saveLastStateSnapshot();
       ui.setStatus(`Auto-saved ${new Date().toLocaleTimeString()}.`);
     } catch {
       ui.setStatus("Auto-save waiting for mGBA core.");
@@ -375,6 +380,7 @@ async function exportOnExit() {
       await storage.saveInGame(currentROM, `${baseName(currentROM.name)}.sav`, saveBuffer);
       downloadBlob(`${baseName(currentROM.name)}.sav`, saveBuffer);
     }
+    await saveLastStateSnapshot();
     const backup = await storage.exportBackup();
     downloadBlob(`gba-shell-backup-${Date.now()}.json`, JSON.stringify(backup, null, 2), "application/json");
   } catch {
@@ -394,6 +400,29 @@ async function clearStates() {
     ui.toast("Save states cleared.");
   } catch (error) {
     ui.toast(error.message || "Could not clear save states.", "error");
+  }
+}
+
+async function saveLastStateSnapshot() {
+  if (!currentROM) return;
+  const payload = await core.saveState();
+  const thumbnail = document.querySelector("#gameCanvas").toDataURL("image/webp", 0.68);
+  await storage.saveState(currentROM, LAST_STATE_SLOT, payload, thumbnail);
+}
+
+async function restoreLastState(rom) {
+  try {
+    const state = await storage.getState(rom, LAST_STATE_SLOT);
+    if (!state) return;
+    await runWithLoading("Restoring last save state…", async () => {
+      ui.setProgress(24);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await core.loadState(state.payload);
+      ui.setProgress(90);
+    });
+    ui.toast("Resumed last save state.");
+  } catch {
+    ui.toast("Last save state could not be restored.", "error");
   }
 }
 

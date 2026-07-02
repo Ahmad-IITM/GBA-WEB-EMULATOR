@@ -129,7 +129,11 @@ export class StorageService {
   async getStates(rom) {
     const keys = resolveRomKeys(rom);
     const all = await this.all("states");
-    return all.filter(state => keys.all.includes(state.romId) || keys.all.includes(state.legacyRomId) || state.gameName === keys.name).sort((a, b) => a.slot - b.slot);
+    return all.filter(state => keys.all.includes(state.romId) || keys.all.includes(state.legacyRomId) || state.gameName === keys.name).sort((a, b) => {
+      const aSlot = typeof a.slot === "number" ? a.slot : Number.POSITIVE_INFINITY;
+      const bSlot = typeof b.slot === "number" ? b.slot : Number.POSITIVE_INFINITY;
+      return aSlot - bSlot;
+    });
   }
 
   async exportBackup() {
