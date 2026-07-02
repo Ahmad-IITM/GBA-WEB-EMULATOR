@@ -42,7 +42,8 @@ class MGBAWasmAdapter {
     this.audioGain = null;
     this.audioNode = null;
     this.audioQueue = [];
-    this.audioEnabled = true;
+    this.audioEnabled = false;
+    this.audioPreferredEnabled = false;
     this.audioVolume = 1;
     this.audioInitPromise = null;
     this.audioUserActivated = false;
@@ -209,7 +210,8 @@ class MGBAWasmAdapter {
 
   setSettings(settings) {
     const audioAllowed = settings.audio !== false;
-    this.audioEnabled = audioAllowed && this.audioUserActivated;
+    this.audioPreferredEnabled = audioAllowed;
+    this.audioEnabled = this.audioPreferredEnabled && this.audioUserActivated;
     this.audioVolume = Number(settings.volume || 100) / 100;
     this.gameSpeed = Number(settings.gameSpeed || 1);
     if (this.module?._mgba_web_set_audio_enabled) {
@@ -222,10 +224,11 @@ class MGBAWasmAdapter {
 
   async resumeAudio() {
     this.audioUserActivated = true;
-    this.audioEnabled = true;
+    this.audioEnabled = this.audioPreferredEnabled;
     if (this.module?._mgba_web_set_audio_enabled) {
-      this.module._mgba_web_set_audio_enabled(1);
+      this.module._mgba_web_set_audio_enabled(this.audioEnabled ? 1 : 0);
     }
+    if (!this.audioEnabled) return false;
     return this.ensureAudio();
   }
 
